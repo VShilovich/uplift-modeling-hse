@@ -35,12 +35,6 @@ async def forward(request: Request):
     treatment_df = pd.DataFrame({"treatment_flg": 0}, index=[0])
     target_df = pd.DataFrame({"target": 0}, index=[0])
 
-    print(client_df)
-    print(train_df)
-    print(treatment_df)
-    print(target_df)
-    print(purchases_df.columns)
-
     try:
         df = fe.calculate_features(
             client_df,
