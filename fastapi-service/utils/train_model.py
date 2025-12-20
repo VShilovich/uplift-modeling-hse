@@ -1,7 +1,7 @@
 import pickle
 from sklift.datasets import fetch_x5
-from feature_extraction import UpliftFeatureExtractor
-from model_extraction import build_t_learner_logreg
+from utils.feature_extraction import UpliftFeatureExtractor
+from utils.model_extraction import build_t_learner_logreg
 
 TARGET_COL = "target"
 TREATMENT_COL = "treatment_flg"
@@ -41,7 +41,7 @@ print("Начинается обучение модели")
 t_model = build_t_learner_logreg(num_cols=num_cols, cat_cols=cat_cols)
 t_model.fit(X_all, y, treatment=t)
 
-with open("model.pkl", "wb") as f:
+with open("data/model.pkl", "wb") as f:
     pickle.dump(
         {
             "model": t_model,
