@@ -138,34 +138,26 @@ async def admin_login(user: AdminUser):
 @app.post("/forward")
 async def forward(request: Request):
     start_time = datetime.now()
-    
+
+    # читаем JSON и считаем размеры
     try:
         data = await request.json()
         input_data = data
-        # сериализуем запрос в строку
         raw = json.dumps(data, ensure_ascii=False)
-        # длина сообщения в байтах
         input_size = len(raw.encode("utf-8"))
-        # токены как количество слов (по пробелам)
         input_tokens = len(raw.split())
     except Exception:
         processing_time = (datetime.now() - start_time).total_seconds()
         log_request_to_db({}, {"error": "JSON parse error"}, 400, processing_time, 0, 0)
         return Response("bad request", status_code=400)
 
+    # базовая проверка структуры
     try:
-        # clients и purchases из запроса
         client_df = pd.DataFrame(data["client"])
         purchases_df = pd.DataFrame(data["purchases"])
 
         if "client_id" not in client_df.columns or "client_id" not in purchases_df.columns:
             raise ValueError("client_id is required")
-
-        client_ids = client_df["client_id"].astype(int)
-
-        train_df = pd.DataFrame({"client_id": client_ids})
-        treatment_df = pd.DataFrame({"treatment_flg": np.zeros(len(client_ids), dtype=int)})
-        target_df = pd.DataFrame({"target": np.zeros(len(client_ids), dtype=int)})
 
     except Exception:
         processing_time = (datetime.now() - start_time).total_seconds()
@@ -179,38 +171,58 @@ async def forward(request: Request):
         )
         return Response("bad request", status_code=400)
 
+    # поштучная обработка клиентов
     try:
-        df = fe.calculate_features(
-            clients_df=client_df,
-            train_df=train_df,
-            treatment_df=treatment_df,
-            target_df=target_df,
-            purchases_df=purchases_df,
-        )
+        results = []
 
-        X = df[feature_names]
+        # groupby на случай, если один client_id пришёл несколько раз в client[]
+        for cid, one_client_rows in client_df.groupby("client_id"):
+            # df с одним клиентом (берём первую строку, остальное дубликаты)
+            one_client_df = one_client_rows.iloc[[0]].copy()
 
-        uplift = model.predict(X)
-        uplift_list = uplift.tolist()
+            # все покупки этого клиента
+            one_pur_df = purchases_df[purchases_df["client_id"] == cid].copy()
 
-        client_ids_out = df.index.tolist()
+            # train/treatment/target под одного клиента
+            train_df = pd.DataFrame({"client_id": [cid]})
+            treatment_df = pd.DataFrame({"treatment_flg": [0]})
+            target_df = pd.DataFrame({"target": [0]})
 
-        response_body = {
-            "uplift": [
-                {"client_id": int(cid), "uplift": float(u)}
-                for cid, u in zip(client_ids_out, uplift_list)
-            ]
-        }
+            # фичи как в обучающем скрипте
+            df_feat = fe.calculate_features(
+                clients_df=one_client_df,
+                train_df=train_df,
+                treatment_df=treatment_df,
+                target_df=target_df,
+                purchases_df=one_pur_df,
+            )
+
+            X = df_feat[feature_names].copy()
+
+            # чистим NaN
+            for col in X.columns:
+                if X[col].dtype.kind in "biufc":
+                    X[col] = X[col].fillna(0.0)
+                else:
+                    mode = X[col].mode(dropna=True)
+                    X[col] = X[col].fillna(mode.iloc[0] if not mode.empty else "NA")
+
+            u = float(model.predict(X)[0])
+
+            results.append({"client_id": int(cid), "uplift": u})
+
+        response_body = {"uplift": results}
 
         processing_time = (datetime.now() - start_time).total_seconds()
         log_request_to_db(input_data, response_body, 200, processing_time, input_size, input_tokens)
         return response_body
 
-    except Exception:
+    except Exception as e: 
         processing_time = (datetime.now() - start_time).total_seconds()
+
         log_request_to_db(
             input_data,
-            {"error": "Model processing failed"},
+            {"error": "Model processing failed", "details": str(e)},
             403,
             processing_time,
             input_size,

@@ -53,33 +53,72 @@ def ensure_first_admin():
 def call_forward():
     print("\n===> Тестовый запрос /forward")
     data = {
-        "client": [
-            {
-                "client_id": 123,
-                "age": 35,
-                "gender": "F",
-                "first_issue_date": "2022-01-10",
-                "first_redeem_date": None,
-            }
-        ],
-        "purchases": [
-            {
-                "client_id": 123,
-                "transaction_id": 1,
-                "transaction_datetime": "2024-02-01 12:30:00",
-                "purchase_sum": 540,
-                "store_id": "54a4a11a29",
-                "regular_points_received": 20,
-                "express_points_received": 0,
-                "regular_points_spent": 0,
-                "express_points_spent": 0,
-                "product_id": "9a80204f78",
-                "product_quantity": 2,
-                "trn_sum_from_iss": 540,
-                "trn_sum_from_red": 0,
-            }
-        ],
-    }
+            "client": [
+                {
+                    "client_id": 123,
+                    "age": 35,
+                    "gender": "F",
+                    "first_issue_date": "2022-01-10",
+                    "first_redeem_date": None,
+                },
+                {
+                    "client_id": 555,
+                    "age": 42,
+                    "gender": "M", 
+                    "first_issue_date": "2021-05-15",
+                    "first_redeem_date": "2021-06-20",
+                }
+            ],
+            "purchases": [
+                # Несколько покупок для client_id=123
+                {
+                    "client_id": 123,
+                    "transaction_id": 1,
+                    "transaction_datetime": "2024-02-01 12:30:00",
+                    "purchase_sum": 540,
+                    "store_id": "54a4a11a29",
+                    "regular_points_received": 20,
+                    "express_points_received": 0,
+                    "regular_points_spent": 0,
+                    "express_points_spent": 0,
+                    "product_id": "9a80204f78",
+                    "product_quantity": 2,
+                    "trn_sum_from_iss": 540,
+                    "trn_sum_from_red": 0,
+                },
+                {
+                    "client_id": 123,
+                    "transaction_id": 2,
+                    "transaction_datetime": "2024-02-02 15:45:00", 
+                    "purchase_sum": 1200,
+                    "store_id": "b2c3d4e5f6",
+                    "regular_points_received": 48,
+                    "express_points_received": 10,
+                    "regular_points_spent": 0,
+                    "express_points_spent": 0,
+                    "product_id": "1b2c3d4e5f",
+                    "product_quantity": 3,
+                    "trn_sum_from_iss": 1200,
+                    "trn_sum_from_red": 0,
+                },
+                # Одна покупка для client_id=555
+                {
+                    "client_id": 555,
+                    "transaction_id": 1,
+                    "transaction_datetime": "2024-02-01 12:30:00",
+                    "purchase_sum": 340,
+                    "store_id": "54a4a11a29",
+                    "regular_points_received": 12,
+                    "express_points_received": 0,
+                    "regular_points_spent": 5,
+                    "express_points_spent": 0,
+                    "product_id": "9a80204f78",
+                    "product_quantity": 1,
+                    "trn_sum_from_iss": 340,
+                    "trn_sum_from_red": 0,
+                }
+            ],
+        }
 
     resp = requests.post(f"{BASE_URL}/forward", json=data)
     print("Status /forward:", resp.status_code)
