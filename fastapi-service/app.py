@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, Request, Response, Header, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from utils.feature_extraction import UpliftFeatureExtractor
+from utils.inference_feature_extractor import UpliftFeatureExtractorInference
 import jwt # PyJWT !!!!!!!!!!!!!!! pip show PyJWT чек
 import numpy as np
 from typing import Optional
@@ -36,7 +36,7 @@ except FileNotFoundError:
     model = None
     feature_names = []
 
-fe = UpliftFeatureExtractor(drop_redundant=True)
+fe = UpliftFeatureExtractorInference(drop_redundant=True)
 
 DB_FILE = "data/uplift-modeling.db"
 
@@ -107,13 +107,19 @@ async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(
 async def create_admin(user: AdminUser):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO admins (username, password_hash) VALUES (?, ?)",
-        (user.username, user.password)
-    )
-    conn.commit()
-    conn.close()
-    return {"status": "ok", "message": f"admin {user.username} created"}
+    try:
+        cur.execute(
+            "INSERT INTO admins (username, password_hash) VALUES (?, ?)",
+            (user.username, user.password)
+        )
+        conn.commit()
+        msg = f"admin {user.username} created"
+    except sqlite3.IntegrityError:
+        # уже есть такой username
+        msg = f"admin {user.username} already exists"
+    finally:
+        conn.close()
+    return {"status": "ok", "message": msg}
 
 @app.post("/login")
 async def admin_login(user: AdminUser):
@@ -175,40 +181,14 @@ async def forward(request: Request):
     try:
         results = []
 
-        # groupby на случай, если один client_id пришёл несколько раз в client[]
         for cid, one_client_rows in client_df.groupby("client_id"):
-            # df с одним клиентом (берём первую строку, остальное дубликаты)
             one_client_df = one_client_rows.iloc[[0]].copy()
-
-            # все покупки этого клиента
             one_pur_df = purchases_df[purchases_df["client_id"] == cid].copy()
-
-            # train/treatment/target под одного клиента
-            train_df = pd.DataFrame({"client_id": [cid]})
-            treatment_df = pd.DataFrame({"treatment_flg": [0]})
-            target_df = pd.DataFrame({"target": [0]})
-
-            # фичи как в обучающем скрипте
-            df_feat = fe.calculate_features(
-                clients_df=one_client_df,
-                train_df=train_df,
-                treatment_df=treatment_df,
-                target_df=target_df,
-                purchases_df=one_pur_df,
-            )
-
-            X = df_feat[feature_names].copy()
-
-            # чистим NaN
-            for col in X.columns:
-                if X[col].dtype.kind in "biufc":
-                    X[col] = X[col].fillna(0.0)
-                else:
-                    mode = X[col].mode(dropna=True)
-                    X[col] = X[col].fillna(mode.iloc[0] if not mode.empty else "NA")
+            
+            df_feat = fe.calculate_features(one_client_df, one_pur_df)
+            X = df_feat[fe.feature_names].copy()
 
             u = float(model.predict(X)[0])
-
             results.append({"client_id": int(cid), "uplift": u})
 
         response_body = {"uplift": results}
@@ -271,6 +251,7 @@ async def clear_history():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute("DELETE FROM history")
+    cur.execute("DELETE FROM sqlite_sequence WHERE name='history'")
     conn.commit()
     conn.close()
     
