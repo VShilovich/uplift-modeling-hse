@@ -212,9 +212,26 @@ alembic/versions/__pycache__/
 # Базы данных
 data/*.db
 data/*.db-journal
+<<<<<<< HEAD
 
 # Jupyter
 .ipynb_checkpoints/
 
 # Папка EDA (если не нужна в репо)
 EDA/
+=======
+*.sqlite
+*.sqlite-journal
+
+# ML модели
+*.pkl
+model.pkl
+
+# Логи приложения
+*.log
+
+# Временные файлы
+*.tmp
+*.temp
+*~
+>>>>>>> a8bfafbbccaed8283b9c5dc166bea5421dc290c1
