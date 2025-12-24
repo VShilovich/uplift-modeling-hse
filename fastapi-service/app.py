@@ -121,6 +121,15 @@ async def create_admin(user: AdminUser):
         conn.close()
     return {"status": "ok", "message": msg}
 
+@app.get("/admins", dependencies=[Depends(get_current_admin)])
+async def list_admins():
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT id, username FROM admins ORDER BY id")
+    rows = cur.fetchall()
+    conn.close()
+    return [{"id": r[0], "username": r[1]} for r in rows]
+
 @app.post("/login")
 async def admin_login(user: AdminUser):
     conn = sqlite3.connect(DB_FILE)
