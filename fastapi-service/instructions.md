@@ -89,3 +89,29 @@
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"username":"second_admin","password":"secondpass"}'
+
+УПРАВЛЕНИЕ МИГРАЦИЯМИ БАЗЫ ДАННЫХ (ALEMBIC)
+----------------------------------------
+
+После внедрения Alembic для управления структурой БД:
+
+1. Проверить текущее состояние миграций:
+   python migrate.py status
+
+2. Создать новую миграцию при изменении моделей:
+   python migrate.py create "описание изменений"
+
+3. Применить миграции:
+   python migrate.py upgrade
+
+4. Откатить последнюю миграцию:
+   python migrate.py downgrade
+
+5. Показать историю миграций:
+   python migrate.py history
+
+Файлы миграций хранятся в alembic/versions/
+Текущая версия отслеживается в таблице alembic_version в БД.
+
+При запуске приложения убедитесь, что все миграции применены:
+   alembic upgrade head
