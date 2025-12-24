@@ -205,3 +205,24 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Alembic кэши
+alembic/versions/__pycache__/
+
+# Базы данных
+data/*.db
+data/*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# ML модели
+*.pkl
+model.pkl
+
+# Логи приложения
+*.log
+
+# Временные файлы
+*.tmp
+*.temp
+*~
