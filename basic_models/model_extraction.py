@@ -19,7 +19,6 @@ T_SOLVER_LOGREG_BEST_PARAMS: Dict[str, object] = {
     'intercept_scaling': 1,
     'l1_ratio': None,
     'max_iter': 2000,
-    'multi_class': 'deprecated',
     'n_jobs': -1,
     'penalty': 'l2',
     'random_state': None,
