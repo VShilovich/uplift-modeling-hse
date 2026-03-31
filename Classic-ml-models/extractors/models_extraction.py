@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
 
@@ -10,6 +10,8 @@ from sklearn.base import BaseEstimator, clone
 
 from catboost import CatBoostClassifier, CatBoostRegressor
 from sklift.models import TwoModels
+from causalml.inference.tree import UpliftRandomForestClassifier
+
 
 T_SOLVER_LOGREG_BEST_PARAMS: Dict[str, object] = {
     'C': 0.027301853380688412,
@@ -95,13 +97,32 @@ BASELINE_CATBOOST_PARAMS: Dict[str, object] = {
     'max_leaves': 64,
 }
 
-def build_baseline_catboost(cat_features: List[int]) -> CatBoostClassifier:
+UPLIFT_RF_PARAMS: Dict[str, object] = {
+    'control_name': 'control',
+    'evaluationFunction': 'KL',
+    'n_estimators': 100,
+    'max_depth': 6,
+    'min_samples_leaf': 200,
+    'min_samples_treatment': 50,
+    'n_jobs': -1,
+    'random_state': 42
+}
+
+def _get_calibrated_params(base_params: Dict[str, Any]) -> Dict[str, Any]:
+    params = base_params.copy()
+    params['use_best_model'] = False
+    params.pop('eval_metric', None)
+    return params
+
+def build_baseline_catboost(cat_features: List[int], use_calibration: bool = False) -> CatBoostClassifier:
     params = BASELINE_CATBOOST_PARAMS.copy()
-    model = CatBoostClassifier(
+    if use_calibration:
+        params = _get_calibrated_params(params)
+    
+    return CatBoostClassifier(
         **params,
         cat_features=cat_features,
     )
-    return model
 
 def build_preprocessor(num_cols: List[str], cat_cols: List[str]) -> ColumnTransformer:
     transformers = []
@@ -130,14 +151,21 @@ def build_t_learner_logreg(num_cols: List[str], cat_cols: List[str]) -> TwoModel
         method="vanilla"
     )
 
-
-def build_s_learner_catboost(cat_features: List[int]) -> CatBoostClassifier:
+def build_s_learner_catboost(cat_features: List[int], use_calibration: bool = False) -> CatBoostClassifier:
     params = S_SOLVER_CATBOOST_PARAMS.copy()
+    if use_calibration:
+        params = _get_calibrated_params(params)
+        
     return CatBoostClassifier(
         **params,
         cat_features=cat_features,
     )
 
+def build_uplift_random_forest(control_name: str = 'control') -> UpliftRandomForestClassifier:
+    params = UPLIFT_RF_PARAMS.copy()
+    params['control_name'] = control_name
+        
+    return UpliftRandomForestClassifier(**params)
 
 def predict_uplift_s_learner(model: CatBoostClassifier, X: pd.DataFrame, treatment_col: str):
     X_treat = X.copy()
@@ -211,17 +239,26 @@ class MyXLearner(BaseEstimator):
         return g * tau0 + (1 - g) * tau1
 
 
-def build_x_learner_catboost(cat_features: List[str]) -> MyXLearner:
+def build_x_learner_catboost(cat_features: List[str], use_calibration: bool = False) -> "MyXLearner":
+    outcome_params = XL_OUTCOME_CATBOOST_PARAMS.copy()
+    propensity_params = XL_PROPENSITY_CATBOOST_PARAMS.copy()
+    
+    if use_calibration:
+        outcome_params = _get_calibrated_params(outcome_params)
+        propensity_params = _get_calibrated_params(propensity_params)
+
     outcome_est = CatBoostClassifier(
-        **XL_OUTCOME_CATBOOST_PARAMS,
+        **outcome_params,
         cat_features=cat_features,
     )
+    # Регрессор (effect_learner) не требует калибровки вероятностей, 
+    # поэтому оставляем его как есть
     effect_est = CatBoostRegressor(
         **XL_EFFECT_CATBOOST_PARAMS,
         cat_features=cat_features,
     )
     propensity_est = CatBoostClassifier(
-        **XL_PROPENSITY_CATBOOST_PARAMS,
+        **propensity_params,
         cat_features=cat_features,
     )
 

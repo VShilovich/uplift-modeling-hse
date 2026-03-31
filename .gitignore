@@ -50,7 +50,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-
+**/catboost_info/
+basic_models/catboost_info/
 # Translations
 *.mo
 *.pot
