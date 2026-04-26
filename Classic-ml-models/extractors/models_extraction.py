@@ -23,7 +23,7 @@ T_SOLVER_LOGREG_BEST_PARAMS: Dict[str, object] = {
     'max_iter': 2000,
     'n_jobs': -1,
     'penalty': 'l2',
-    'random_state': None,
+    'random_state': 42,
     'solver': 'lbfgs',
     'tol': 0.0001,
     'verbose': 0,
