@@ -211,6 +211,8 @@ __marimo__/
 alembic/versions/__pycache__/
 
 # Базы данных
+data/
+models_saved/
 data/*.db
 data/*.db-journal
 <<<<<<< HEAD

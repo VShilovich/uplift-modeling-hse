@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 import numpy as np
 import pandas as pd
+import copy
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -12,6 +13,9 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklift.models import TwoModels
 from causalml.inference.tree import UpliftRandomForestClassifier
 
+"""
+Классические ML-подходы в моделировании, используемые в экспериментах.
+"""
 
 T_SOLVER_LOGREG_BEST_PARAMS: Dict[str, object] = {
     'C': 0.027301853380688412,
@@ -114,6 +118,49 @@ def _get_calibrated_params(base_params: Dict[str, Any]) -> Dict[str, Any]:
     params.pop('eval_metric', None)
     return params
 
+def _extract_cat_features(estimator):
+    """
+    Достаем cat_features даже если estimator завернут в CalibratedClassifierCV.
+    """
+    if estimator is None:
+        return []
+
+    if hasattr(estimator, 'get_params'):
+        params = estimator.get_params(deep=False)
+        if 'cat_features' in params and params['cat_features'] is not None:
+            return list(params['cat_features'])
+
+    # sklearn calibration wrapper
+    if hasattr(estimator, 'estimator'):
+        return _extract_cat_features(estimator.estimator)
+
+    if hasattr(estimator, 'base_estimator'):
+        return _extract_cat_features(estimator.base_estimator)
+
+    return []
+
+
+def _sanitize_catboost_input(X, cat_features):
+    """
+    Для CatBoost все categorical columns приводим к строке
+    и заменяем NaN на специальный токен.
+    """
+    if not isinstance(X, pd.DataFrame):
+        return X
+
+    if not cat_features:
+        return X
+
+    X_out = X.copy()
+
+    for col in cat_features:
+        if col in X_out.columns:
+            X_out[col] = X_out[col].astype('object')
+            X_out[col] = X_out[col].where(X_out[col].notna(), '__nan__')
+            X_out[col] = X_out[col].astype(str)
+
+    return X_out
+
 def build_baseline_catboost(cat_features: List[int], use_calibration: bool = False) -> CatBoostClassifier:
     params = BASELINE_CATBOOST_PARAMS.copy()
     if use_calibration:
@@ -155,7 +202,9 @@ def build_s_learner_catboost(cat_features: List[int], use_calibration: bool = Fa
     params = S_SOLVER_CATBOOST_PARAMS.copy()
     if use_calibration:
         params = _get_calibrated_params(params)
-        
+
+    cat_features = tuple(cat_features)
+
     return CatBoostClassifier(
         **params,
         cat_features=cat_features,
@@ -174,6 +223,10 @@ def predict_uplift_s_learner(model: CatBoostClassifier, X: pd.DataFrame, treatme
     X_treat[treatment_col] = 1
     X_ctrl[treatment_col] = 0
 
+    cat_features = _extract_cat_features(model)
+    X_treat = _sanitize_catboost_input(X_treat, cat_features)
+    X_ctrl = _sanitize_catboost_input(X_ctrl, cat_features)
+
     p1 = model.predict_proba(X_treat)[:, 1]
     p0 = model.predict_proba(X_ctrl)[:, 1]
 
@@ -184,7 +237,6 @@ class MyXLearner(BaseEstimator):
 
     def __init__(self, outcome_learner, effect_learner, propensity_learner):
         self.outcome_learner = outcome_learner
-
         self.effect_learner = effect_learner
         self.propensity_learner = propensity_learner
 
@@ -198,43 +250,57 @@ class MyXLearner(BaseEstimator):
         y = np.asarray(y)
         t = np.asarray(treatment)
 
-        X_c = X[t == 0]
+        outcome_cat_features = _extract_cat_features(self.outcome_learner)
+        effect_cat_features = _extract_cat_features(self.effect_learner)
+        propensity_cat_features = _extract_cat_features(self.propensity_learner)
+
+        X_outcome = _sanitize_catboost_input(X, outcome_cat_features)
+        X_effect = _sanitize_catboost_input(X, effect_cat_features)
+        X_propensity = _sanitize_catboost_input(X, propensity_cat_features)
+
+        X_c_out = X_outcome[t == 0]
         y_c = y[t == 0]
-        X_t = X[t == 1]
+        X_t_out = X_outcome[t == 1]
         y_t = y[t == 1]
 
-        # outcome models
-        self.model_mu_0 = clone(self.outcome_learner)
-        self.model_mu_0.fit(X_c, y_c)
+        X_c_eff = X_effect[t == 0]
+        X_t_eff = X_effect[t == 1]
 
-        self.model_mu_1 = clone(self.outcome_learner)
-        self.model_mu_1.fit(X_t, y_t)
+        # outcome models
+        self.model_mu_0 = copy.deepcopy(self.outcome_learner)
+        self.model_mu_0.fit(X_c_out, y_c)
+
+        self.model_mu_1 = copy.deepcopy(self.outcome_learner)
+        self.model_mu_1.fit(X_t_out, y_t)
 
         # propensity
-        self.model_propensity = clone(self.propensity_learner)
-        self.model_propensity.fit(X, t)
+        self.model_propensity = copy.deepcopy(self.propensity_learner)
+        self.model_propensity.fit(X_propensity, t)
 
         # pseudo-effects
-        mu1_on_c = self.model_mu_1.predict_proba(X_c)[:, 1]
-        mu0_on_t = self.model_mu_0.predict_proba(X_t)[:, 1]
+        mu1_on_c = self.model_mu_1.predict_proba(X_c_out)[:, 1]
+        mu0_on_t = self.model_mu_0.predict_proba(X_t_out)[:, 1]
 
         D0 = mu1_on_c - y_c
         D1 = y_t - mu0_on_t
 
         # effect models
-        self.model_tau_0 = clone(self.effect_learner)
-        self.model_tau_0.fit(X_c, D0)
+        self.model_tau_0 = copy.deepcopy(self.effect_learner)
+        self.model_tau_0.fit(X_c_eff, D0)
 
-        self.model_tau_1 = clone(self.effect_learner)
-        self.model_tau_1.fit(X_t, D1)
+        self.model_tau_1 = copy.deepcopy(self.effect_learner)
+        self.model_tau_1.fit(X_t_eff, D1)
 
         return self
 
     def predict(self, X):
-        tau0 = self.model_tau_0.predict(X)
-        tau1 = self.model_tau_1.predict(X)
+        X_tau = _sanitize_catboost_input(X, _extract_cat_features(self.model_tau_0))
+        X_prop = _sanitize_catboost_input(X, _extract_cat_features(self.model_propensity))
 
-        g = self.model_propensity.predict_proba(X)[:, 1]
+        tau0 = self.model_tau_0.predict(X_tau)
+        tau1 = self.model_tau_1.predict(X_tau)
+
+        g = self.model_propensity.predict_proba(X_prop)[:, 1]
 
         return g * tau0 + (1 - g) * tau1
 
@@ -242,17 +308,17 @@ class MyXLearner(BaseEstimator):
 def build_x_learner_catboost(cat_features: List[str], use_calibration: bool = False) -> "MyXLearner":
     outcome_params = XL_OUTCOME_CATBOOST_PARAMS.copy()
     propensity_params = XL_PROPENSITY_CATBOOST_PARAMS.copy()
-    
+
     if use_calibration:
         outcome_params = _get_calibrated_params(outcome_params)
         propensity_params = _get_calibrated_params(propensity_params)
+
+    cat_features = tuple(cat_features)
 
     outcome_est = CatBoostClassifier(
         **outcome_params,
         cat_features=cat_features,
     )
-    # Регрессор (effect_learner) не требует калибровки вероятностей, 
-    # поэтому оставляем его как есть
     effect_est = CatBoostRegressor(
         **XL_EFFECT_CATBOOST_PARAMS,
         cat_features=cat_features,
