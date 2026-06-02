@@ -157,6 +157,7 @@ def plot_percentile_grid(preds_dict, y_true, treatment, split_name, bins=10):
     fig.suptitle(f'Uplift by percentile | {split_name}', fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout(rect=[0, 0, 1, 0.985])
     plt.show()
+    return fig
 
 def _top_k_business_stats(y_true, uplift_preds, treatment, k=0.1):
     y_true = np.asarray(y_true).reshape(-1)

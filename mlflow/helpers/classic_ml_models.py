@@ -11,7 +11,6 @@ from sklearn.base import BaseEstimator, clone
 
 from catboost import CatBoostClassifier, CatBoostRegressor
 from sklift.models import TwoModels
-from causalml.inference.tree import UpliftRandomForestClassifier
 
 """
 Классические ML-подходы в моделировании, используемые в экспериментах.
@@ -210,7 +209,8 @@ def build_s_learner_catboost(cat_features: List[int], use_calibration: bool = Fa
         cat_features=cat_features,
     )
 
-def build_uplift_random_forest(control_name: str = 'control') -> UpliftRandomForestClassifier:
+def build_uplift_random_forest(control_name: str = 'control'):
+    from causalml.inference.tree import UpliftRandomForestClassifier
     params = UPLIFT_RF_PARAMS.copy()
     params['control_name'] = control_name
         
